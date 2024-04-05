@@ -2,7 +2,7 @@
   "name": "quick-tab-search",
   "displayName": "Quick Tab Search",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.88.0"
   },
@@ -11,6 +11,7 @@
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
+  "publisher": "mmgeorge",
   "contributes": {
     "commands": [
       {
