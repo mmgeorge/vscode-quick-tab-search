@@ -136,7 +136,9 @@ class QuickTabItem implements QuickPickItem {
 window.tabGroups.onDidChangeTabs(event => {
   if (!inQuickTab) {
     const tab = window.tabGroups.activeTabGroup.activeTab;
-    if (tab) {
+
+    // TODO: Can we open tabs without a uri?
+    if (tab && tab.input != null && "uri" in tab) {
       lastActiveTabIdent = tab.label;
     }
   }
@@ -203,6 +205,7 @@ export class QuickTabPicker {
 
         if (group.isActive && tab.isActive) {
           activeItem = item;
+          continue;
         }
 
         if (item.ident === lastActiveTabIdent) {
