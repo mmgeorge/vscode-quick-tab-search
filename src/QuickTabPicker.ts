@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import path from "path";
 import { runInThisContext } from "vm";
-import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, ThemeColor, ThemeIcon, TreeItem, Uri, window, workspace } from "vscode";
+import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, ThemeColor, ThemeIcon, TreeItem, Uri, commands, window, workspace } from "vscode";
 
 type TabInputType = TabInputText | TabInputTextDiff | TabInputCustom | TabInputWebview | TabInputNotebook | TabInputNotebookDiff | TabInputTerminal;
 
@@ -22,17 +22,18 @@ interface MagitTabInput {
 
 interface InputTypeOther {
   type: "other";
+  uri: Uri;
 }
 
 type TabInputUnion = FileTabInput | GitDiffTabInput | MagitTabInput | InputTypeOther;
 
 class QuickTabItem implements QuickPickItem {
   constructor(private readonly _tab: Tab) {
-    this._input = this._initInput();
+    this.input = this._initInput();
   }
 
-  private _input: TabInputUnion;
-  private _initInput(): TabInputUnion {
+  readonly input: TabInputUnion | null;
+  private _initInput(): TabInputUnion | null {
     const input = this._tab.input as any as TabInputType;
 
     if (input) {
@@ -41,9 +42,11 @@ class QuickTabItem implements QuickPickItem {
           case "file": return { type: "file", inner: input };
           case "magit": return { type: "magit", inner: input };
         }
+
+        return { type: "other", uri: input.uri };
       }
 
-      else if ("modified" in input) {
+      if ("modified" in input) {
         return {
           type: "git",
           inner: input
@@ -51,7 +54,8 @@ class QuickTabItem implements QuickPickItem {
       }
     }
 
-    return { type: "other" };
+    // TODO: Do we have a way to switch to buffers that don't have a uri? I.e., system menus?
+    return null;
   }
 
   get isActive(): Tab["isActive"] {
@@ -66,8 +70,8 @@ class QuickTabItem implements QuickPickItem {
     return this._tab.isDirty;
   }
 
-  get type(): TabInputUnion["type"] {
-    return this._input.type;
+  get type(): TabInputUnion["type"] | undefined {
+    return this.input?.type;
   }
 
   get label(): string {
@@ -94,11 +98,11 @@ class QuickTabItem implements QuickPickItem {
   }
 
   get description(): string | undefined {
-    if (!this._input) {
+    if (!this.input) {
       return;
     }
 
-    const input = this._input;;
+    const input = this.input;;
     switch (input.type) {
       case "file": {
         const uri = input.inner.uri;
@@ -129,40 +133,101 @@ class QuickTabItem implements QuickPickItem {
   }
 }
 
-let lastActiveTabIdent: string | null = null;
+window.tabGroups.onDidChangeTabs(event => {
+  if (!inQuickTab) {
+    const tab = window.tabGroups.activeTabGroup.activeTab;
+    if (tab) {
+      lastActiveTabIdent = tab.label;
+    }
+  }
+});
+
+export let lastActiveTabIdent: string | null = null;
+export let inQuickTab = false;
+export function setInQuickTabStatus(status: boolean) {
+  commands.executeCommand("setContext", "inQuickTab", status);
+  inQuickTab = status;
+}
 
 export class QuickTabPicker {
   readonly _inner = window.createQuickPick<QuickTabItem>();
   readonly _items = new Array<QuickTabItem>();
 
   constructor() {
+    setInQuickTabStatus(true);
+
+    this._inner.items = this._getTabItems();
+    this._inner.onDidChangeActive((items) => this._onDidChangeActive(items as any));
+    this._inner.onDidAccept(() => this.destroy());
+    this._inner.show();
+  }
+
+  destroy(): void {
+    setInQuickTabStatus(false);
+    this._inner.dispose();
+  }
+
+  private _onDidChangeActive(items: QuickTabItem[]) {
+    const item = items[0];
+    const input = item.input;
+
+    if (!input || input.type === "git") {
+      throw new Error("Items that cannot be switched to should be hidden");
+    }
+
+    // TODO: Do we have a way of opening the actual diff?
+    // if (input.type == "git") {
+    //   window.showTextDocument(input.inner.modified, { preserveFocus: true });
+    //   return;
+    // }
+
+    if (input.type == "file" || input.type === "magit") {
+      window.showTextDocument(input.inner.uri, { preserveFocus: true });
+      return;
+    };
+
+    window.showTextDocument(input.uri, { preserveFocus: true });
+  }
+
+  private _getTabItems(): QuickTabItem[] {
     const tabGroups = window.tabGroups.all;
     const files: QuickPickItem[] = [];
     const diffs: QuickPickItem[] = [];
     const other: QuickPickItem[] = [];
     let mostRecent: QuickTabItem | null = null;
+    let activeItem: QuickTabItem | null = null;
 
     for (const group of tabGroups) {
       for (const tab of group.tabs) {
         const item = new QuickTabItem(tab);
 
+        if (group.isActive && tab.isActive) {
+          activeItem = item;
+        }
+
         if (item.ident === lastActiveTabIdent) {
           mostRecent = item;
         } else if (item.type === "file") {
           files.push(item);
+        } else if (item.type === "other" || item.type === 'magit') {
+          other.push(item);;
         } else if (item.type === "git") {
           diffs.push(item);
-        } else {
-          other.push(item);;
         }
       }
     }
+
+    if (activeItem == null) {
+      throw new Error("Active tab not found");
+    }
+
+    lastActiveTabIdent = activeItem.ident;
 
     const sorted: QuickPickItem[] = [];
 
     if (mostRecent) {
       sorted.push({
-        label: "Recent",
+        label: "Last",
         kind: QuickPickItemKind.Separator
       });
       sorted.push(mostRecent);
@@ -174,24 +239,21 @@ export class QuickTabPicker {
     });
     sorted.push(...files);
 
-    sorted.push({
-      label: "Git",
-      kind: QuickPickItemKind.Separator
-    });
-    sorted.push(...diffs);
+    // TODO: Do we have a way of opening the actual diff?
+    // sorted.push({
+    //   label: "Git",
+    //   kind: QuickPickItemKind.Separator
+    // });
+    // sorted.push(...diffs);
 
     sorted.push({
-      label: "System",
+      label: "Other",
       kind: QuickPickItemKind.Separator
     });
     sorted.push(...other);
 
-    this._inner.items = sorted as any;
-    this._inner.show();
-  }
-
-  destroy(): void {
-    this._inner.dispose();
+    // Ok, should not be able to select separators
+    return sorted as any;
   }
 }
 
