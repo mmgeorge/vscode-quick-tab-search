@@ -6,6 +6,10 @@
   "engines": {
     "vscode": "^1.88.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:mmgeorge/vscode-quick-tab-search.git"
+  },
   "categories": [
     "Other"
   ],
