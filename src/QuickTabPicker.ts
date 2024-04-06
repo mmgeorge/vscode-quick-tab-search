@@ -20,12 +20,20 @@ interface MagitTabInput {
   inner: TabInputText;
 }
 
+interface SettingsTabInput {
+  type: "settings";
+}
+
+interface KeybindingsTabInput {
+  type: "keybindings";
+}
+
 interface InputTypeOther {
   type: "other";
   uri: Uri;
 }
 
-type TabInputUnion = FileTabInput | GitDiffTabInput | MagitTabInput | InputTypeOther;
+type TabInputUnion = FileTabInput | GitDiffTabInput | MagitTabInput | InputTypeOther | SettingsTabInput | KeybindingsTabInput;
 
 class QuickTabItem implements QuickPickItem {
   constructor(private readonly _tab: Tab) {
@@ -52,6 +60,14 @@ class QuickTabItem implements QuickPickItem {
           inner: input
         };
       }
+    }
+
+    if (this._tab.label === "Keyboard Shortcuts") {
+      return { type: "keybindings" };
+    }
+
+    if (this._tab.label === "Settings") {
+      return { type: "settings" };
     }
 
     // TODO: Do we have a way to switch to buffers that don't have a uri? I.e., system menus?
@@ -137,9 +153,12 @@ window.tabGroups.onDidChangeTabs(event => {
   if (!inQuickTab) {
     const tab = window.tabGroups.activeTabGroup.activeTab;
 
-    // TODO: Can we open tabs without a uri?
-    if (tab && tab.input != null && "uri" in tab) {
-      lastActiveTabIdent = tab.label;
+    if (tab) {
+      const item = new QuickTabItem(tab); 
+
+      if (tab.input) {
+        lastActiveTabIdent = tab.label;
+      }
     }
   }
 });
@@ -160,7 +179,7 @@ export class QuickTabPicker {
 
     this._inner.items = this._getTabItems();
     this._inner.onDidChangeActive((items) => this._onDidChangeActive(items as any));
-    this._inner.onDidAccept(() => this.destroy());
+    this._inner.onDidAccept(() => this._onDidAccept());
     this._inner.show();
   }
 
@@ -168,25 +187,58 @@ export class QuickTabPicker {
     setInQuickTabStatus(false);
     this._inner.dispose();
   }
+  
+  private _onDidAccept() {
+    const activeItems = this._inner.activeItems; 
+
+    if (activeItems.length !== 0) {
+      const item = activeItems[0]; 
+
+      // These are special cases. Ideally we would be able to reveal 
+      // in onDidChangeActive item, but we can't as they are commands
+      if (item.input) {
+        if (item.input.type === "settings") {
+          commands.executeCommand("workbench.action.openSettings");
+        }
+        else if (item.input.type === "keybindings") {
+          commands.executeCommand("workbench.action.openGlobalKeybindings");
+        }      
+        else if (item.input.type == "git") {
+          commands.executeCommand("git.openChange", item.input.inner.original);
+        }
+      }
+    }
+
+    this.destroy();
+  }
 
   private _onDidChangeActive(items: QuickTabItem[]) {
     const item = items[0];
     const input = item.input;
 
-    if (!input || input.type === "git") {
+    if (!input) {
       throw new Error("Items that cannot be switched to should be hidden");
     }
 
-    // TODO: Do we have a way of opening the actual diff?
-    // if (input.type == "git") {
-    //   window.showTextDocument(input.inner.modified, { preserveFocus: true });
-    //   return;
-    // }
+    if (input.type == "git") {
+      // We launch the command only on accept
+      return;
+    }
 
     if (input.type == "file" || input.type === "magit") {
       window.showTextDocument(input.inner.uri, { preserveFocus: true });
       return;
     };
+
+    if (input.type === "settings") {
+      // We launch the command only on accept
+      return; 
+    }
+
+    if (input.type === "keybindings") {
+      // We launch the command only on accept
+      return; 
+    }
 
     window.showTextDocument(input.uri, { preserveFocus: true });
   }
@@ -196,6 +248,7 @@ export class QuickTabPicker {
     const files: QuickPickItem[] = [];
     const diffs: QuickPickItem[] = [];
     const other: QuickPickItem[] = [];
+    const pinned: QuickPickItem[] = [];
     let mostRecent: QuickTabItem | null = null;
     let activeItem: QuickTabItem | null = null;
 
@@ -207,12 +260,17 @@ export class QuickTabPicker {
           activeItem = item;
           continue;
         }
+        
+        if (tab.isPinned) {
+          pinned.push(item); 
+          continue; 
+        }
 
         if (item.ident === lastActiveTabIdent) {
           mostRecent = item;
         } else if (item.type === "file") {
           files.push(item);
-        } else if (item.type === "other" || item.type === 'magit') {
+        } else if (item.type === "other" || item.type === 'magit' || item.type === "settings" || item.type === "keybindings")  {
           other.push(item);;
         } else if (item.type === "git") {
           diffs.push(item);
@@ -234,7 +292,13 @@ export class QuickTabPicker {
         kind: QuickPickItemKind.Separator
       });
       sorted.push(mostRecent);
-    }
+    }; 
+
+    sorted.push({
+      label: "Pins",
+      kind: QuickPickItemKind.Separator
+    });
+    sorted.push(...pinned);
 
     sorted.push({
       label: "Text",
@@ -243,11 +307,11 @@ export class QuickTabPicker {
     sorted.push(...files);
 
     // TODO: Do we have a way of opening the actual diff?
-    // sorted.push({
-    //   label: "Git",
-    //   kind: QuickPickItemKind.Separator
-    // });
-    // sorted.push(...diffs);
+    sorted.push({
+      label: "Git",
+      kind: QuickPickItemKind.Separator
+    });
+    sorted.push(...diffs);
 
     sorted.push({
       label: "Other",
