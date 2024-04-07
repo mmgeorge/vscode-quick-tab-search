@@ -1,39 +1,8 @@
 import { homedir } from "os";
 import path from "path";
 import { runInThisContext } from "vm";
-import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, ThemeColor, ThemeIcon, TreeItem, Uri, commands, window, workspace } from "vscode";
-
-type TabInputType = TabInputText | TabInputTextDiff | TabInputCustom | TabInputWebview | TabInputNotebook | TabInputNotebookDiff | TabInputTerminal;
-
-interface FileTabInput {
-  type: "file";
-  inner: TabInputText;
-}
-
-interface GitDiffTabInput {
-  type: "git";
-  inner: TabInputTextDiff;
-}
-
-interface MagitTabInput {
-  type: "magit";
-  inner: TabInputText;
-}
-
-interface SettingsTabInput {
-  type: "settings";
-}
-
-interface KeybindingsTabInput {
-  type: "keybindings";
-}
-
-interface InputTypeOther {
-  type: "other";
-  uri: Uri;
-}
-
-type TabInputUnion = FileTabInput | GitDiffTabInput | MagitTabInput | InputTypeOther | SettingsTabInput | KeybindingsTabInput;
+import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, ThemeColor, ThemeIcon, TreeItem, commands, window, workspace } from "vscode";
+import { TabInputUnion, TabInputType } from "./TabInputUnion";
 
 class QuickTabItem implements QuickPickItem {
   constructor(private readonly _tab: Tab) {
@@ -149,20 +118,6 @@ class QuickTabItem implements QuickPickItem {
   }
 }
 
-window.tabGroups.onDidChangeTabs(event => {
-  if (!inQuickTab) {
-    const tab = window.tabGroups.activeTabGroup.activeTab;
-
-    if (tab) {
-      const item = new QuickTabItem(tab); 
-
-      if (tab.input) {
-        lastActiveTabIdent = tab.label;
-      }
-    }
-  }
-});
-
 export let lastActiveTabIdent: string | null = null;
 export let inQuickTab = false;
 export function setInQuickTabStatus(status: boolean) {
@@ -170,7 +125,7 @@ export function setInQuickTabStatus(status: boolean) {
   inQuickTab = status;
 }
 
-export class QuickTabPicker {
+export class dQuickTabPicker {
   readonly _inner = window.createQuickPick<QuickTabItem>();
   readonly _items = new Array<QuickTabItem>();
 
@@ -178,7 +133,6 @@ export class QuickTabPicker {
     setInQuickTabStatus(true);
 
     this._inner.items = this._getTabItems();
-    this._inner.onDidChangeActive((items) => this._onDidChangeActive(items as any));
     this._inner.onDidAccept(() => this._onDidAccept());
     this._inner.show();
   }
@@ -187,12 +141,16 @@ export class QuickTabPicker {
     setInQuickTabStatus(false);
     this._inner.dispose();
   }
-  
+
   private _onDidAccept() {
-    const activeItems = this._inner.activeItems; 
+    const activeItems = this._inner.activeItems;
 
     if (activeItems.length !== 0) {
-      const item = activeItems[0]; 
+      const item = activeItems[0];
+
+      for (const tab of this.activeTabs()) {
+        lastActiveTabIdent = tab.label;
+      }
 
       // These are special cases. Ideally we would be able to reveal 
       // in onDidChangeActive item, but we can't as they are commands
@@ -202,9 +160,15 @@ export class QuickTabPicker {
         }
         else if (item.input.type === "keybindings") {
           commands.executeCommand("workbench.action.openGlobalKeybindings");
-        }      
+        }
         else if (item.input.type == "git") {
           commands.executeCommand("git.openChange", item.input.inner.original);
+        }
+        else if (item.input.type == "file" || item.input.type === "magit") {
+          window.showTextDocument(item.input.inner.uri, { preserveFocus: false });
+        }
+        else {
+          window.showTextDocument(item.input.uri, { preserveFocus: false });
         }
       }
     }
@@ -212,35 +176,16 @@ export class QuickTabPicker {
     this.destroy();
   }
 
-  private _onDidChangeActive(items: QuickTabItem[]) {
-    const item = items[0];
-    const input = item.input;
-
-    if (!input) {
-      throw new Error("Items that cannot be switched to should be hidden");
+  *activeTabs(): IterableIterator<Tab> {
+    for (const group of window.tabGroups.all) {
+      if (group.isActive) {
+        for (const tab of group.tabs) {
+          if (tab.isActive) {
+            yield tab;
+          }
+        }
+      }
     }
-
-    if (input.type == "git") {
-      // We launch the command only on accept
-      return;
-    }
-
-    if (input.type == "file" || input.type === "magit") {
-      window.showTextDocument(input.inner.uri, { preserveFocus: true });
-      return;
-    };
-
-    if (input.type === "settings") {
-      // We launch the command only on accept
-      return; 
-    }
-
-    if (input.type === "keybindings") {
-      // We launch the command only on accept
-      return; 
-    }
-
-    window.showTextDocument(input.uri, { preserveFocus: true });
   }
 
   private _getTabItems(): QuickTabItem[] {
@@ -256,33 +201,26 @@ export class QuickTabPicker {
       for (const tab of group.tabs) {
         const item = new QuickTabItem(tab);
 
-        if (group.isActive && tab.isActive) {
-          activeItem = item;
+        if (tab.isActive) {
+          // Don't include the currently active tab
           continue;
-        }
-        
-        if (tab.isPinned) {
-          pinned.push(item); 
-          continue; 
         }
 
         if (item.ident === lastActiveTabIdent) {
           mostRecent = item;
-        } else if (item.type === "file") {
+        }
+        else if (tab.isPinned) {
+          pinned.push(item);
+        }
+        else if (item.type === "file") {
           files.push(item);
-        } else if (item.type === "other" || item.type === 'magit' || item.type === "settings" || item.type === "keybindings")  {
+        } else if (item.type === "other" || item.type === 'magit' || item.type === "settings" || item.type === "keybindings") {
           other.push(item);;
         } else if (item.type === "git") {
           diffs.push(item);
         }
       }
     }
-
-    if (activeItem == null) {
-      throw new Error("Active tab not found");
-    }
-
-    lastActiveTabIdent = activeItem.ident;
 
     const sorted: QuickPickItem[] = [];
 
@@ -292,7 +230,7 @@ export class QuickTabPicker {
         kind: QuickPickItemKind.Separator
       });
       sorted.push(mostRecent);
-    }; 
+    };
 
     sorted.push({
       label: "Pins",

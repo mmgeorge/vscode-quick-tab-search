@@ -2,7 +2,8 @@
   "name": "quick-tab-search",
   "displayName": "Quick Tab Search",
   "description": "",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "icon": "./images/icon.png",
   "engines": {
     "vscode": "^1.88.0"
   },
