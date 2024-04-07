@@ -125,7 +125,7 @@ export function setInQuickTabStatus(status: boolean) {
   inQuickTab = status;
 }
 
-export class dQuickTabPicker {
+export class QuickTabPicker {
   readonly _inner = window.createQuickPick<QuickTabItem>();
   readonly _items = new Array<QuickTabItem>();
 
