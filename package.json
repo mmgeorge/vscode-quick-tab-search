@@ -3,7 +3,7 @@
   "displayName": "Quick Tab Search",
   "description": "",
   "version": "0.3.0",
-  "icon": "./images/icon.png",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.88.0"
   },
