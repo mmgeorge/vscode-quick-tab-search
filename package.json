@@ -2,7 +2,7 @@
   "name": "quick-tab-search",
   "displayName": "Quick Tab Search",
   "description": "",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.88.0"
@@ -22,6 +22,10 @@
       {
         "command": "quick-tab-search.showTabs",
         "title": "Quick Tab Search: Show Tabs"
+      },
+      {
+        "command": "quick-tab-search.togglePinTab",
+        "title": "Quick Tab Search: Toggle Pin Tab"
       }
     ]
   },

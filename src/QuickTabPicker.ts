@@ -4,7 +4,7 @@ import { runInThisContext } from "vm";
 import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, ThemeColor, ThemeIcon, TreeItem, commands, window, workspace } from "vscode";
 import { TabInputUnion, TabInputType } from "./TabInputUnion";
 
-class QuickTabItem implements QuickPickItem {
+export class QuickTabItem implements QuickPickItem {
   constructor(private readonly _tab: Tab) {
     this.input = this._initInput();
   }
