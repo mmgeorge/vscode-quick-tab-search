@@ -1,8 +1,9 @@
 import { homedir } from "os";
 import path from "path";
-import { runInThisContext } from "vm";
-import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, ThemeColor, ThemeIcon, TreeItem, commands, window, workspace } from "vscode";
-import { TabInputUnion, TabInputType } from "./TabInputUnion";
+import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, commands, window, workspace } from "vscode";
+import { TabInputType, TabInputUnion } from "./TabInputUnion";
+
+const showCurrentTab = false;
 
 export class QuickTabItem implements QuickPickItem {
   constructor(private readonly _tab: Tab) {
@@ -118,7 +119,7 @@ export class QuickTabItem implements QuickPickItem {
   }
 }
 
-export let lastActiveTabIdent: string | null = null;
+export let lastActiveTabIdent: string | undefined;
 export let inQuickTab = false;
 export function setInQuickTabStatus(status: boolean) {
   commands.executeCommand("setContext", "inQuickTab", status);
@@ -147,10 +148,13 @@ export class QuickTabPicker {
 
     if (activeItems.length !== 0) {
       const item = activeItems[0];
-
-      for (const tab of this.activeTabs()) {
-        lastActiveTabIdent = tab.label;
+      const ident = window.tabGroups.activeTabGroup.activeTab?.label;
+      if (ident === item.ident) {
+        this.destroy();
+        return;
       }
+
+      lastActiveTabIdent = ident;
 
       // These are special cases. Ideally we would be able to reveal 
       // in onDidChangeActive item, but we can't as they are commands
@@ -161,10 +165,10 @@ export class QuickTabPicker {
         else if (item.input.type === "keybindings") {
           commands.executeCommand("workbench.action.openGlobalKeybindings");
         }
-        else if (item.input.type == "git") {
+        else if (item.input.type === "git") {
           commands.executeCommand("git.openChange", item.input.inner.original);
         }
-        else if (item.input.type == "file" || item.input.type === "magit") {
+        else if (item.input.type === "file" || item.input.type === "magit") {
           window.showTextDocument(item.input.inner.uri, { preserveFocus: false });
         }
         else {
@@ -174,18 +178,6 @@ export class QuickTabPicker {
     }
 
     this.destroy();
-  }
-
-  *activeTabs(): IterableIterator<Tab> {
-    for (const group of window.tabGroups.all) {
-      if (group.isActive) {
-        for (const tab of group.tabs) {
-          if (tab.isActive) {
-            yield tab;
-          }
-        }
-      }
-    }
   }
 
   private _getTabItems(): QuickTabItem[] {
@@ -201,8 +193,7 @@ export class QuickTabPicker {
       for (const tab of group.tabs) {
         const item = new QuickTabItem(tab);
 
-        if (tab.isActive) {
-          // Don't include the currently active tab
+        if (!showCurrentTab && item.isActive) {
           continue;
         }
 
