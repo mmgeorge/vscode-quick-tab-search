@@ -126,16 +126,20 @@ export function setInQuickTabStatus(status: boolean) {
 }
 
 
-let nextLastActiveTab = window.tabGroups.activeTabGroup.activeTab?.label;
+let currentActiveTabIdent = window.tabGroups.activeTabGroup.activeTab?.label;
 let lastActiveTabIdent: string | undefined;
 
 window.tabGroups.onDidChangeTabs(event => {
   const tab = window.tabGroups.activeTabGroup.activeTab;
 
   if (tab) {
+    // We can get this event fired for the same tab multiple times
+    if (tab.label === currentActiveTabIdent) {
+      return;
+    }
     const item = new QuickTabItem(tab);
-    lastActiveTabIdent = nextLastActiveTab
-    nextLastActiveTab = tab.label;
+    lastActiveTabIdent = currentActiveTabIdent
+    currentActiveTabIdent = tab.label;
   }
 })
 
