@@ -119,12 +119,25 @@ export class QuickTabItem implements QuickPickItem {
   }
 }
 
-export let lastActiveTabIdent: string | undefined;
 export let inQuickTab = false;
 export function setInQuickTabStatus(status: boolean) {
   commands.executeCommand("setContext", "inQuickTab", status);
   inQuickTab = status;
 }
+
+
+let nextLastActiveTab = window.tabGroups.activeTabGroup.activeTab?.label;
+let lastActiveTabIdent: string | undefined;
+
+window.tabGroups.onDidChangeTabs(event => {
+  const tab = window.tabGroups.activeTabGroup.activeTab;
+
+  if (tab) {
+    const item = new QuickTabItem(tab);
+    lastActiveTabIdent = nextLastActiveTab
+    nextLastActiveTab = tab.label;
+  }
+})
 
 export class QuickTabPicker {
   readonly _inner = window.createQuickPick<QuickTabItem>();
@@ -154,7 +167,7 @@ export class QuickTabPicker {
         return;
       }
 
-      lastActiveTabIdent = ident;
+      //lastActiveTabIdent = ident;
 
       // These are special cases. Ideally we would be able to reveal 
       // in onDidChangeActive item, but we can't as they are commands
