@@ -1,12 +1,16 @@
+import { statSync } from "fs";
 import { homedir } from "os";
 import path from "path";
-import { QuickInputButton, QuickPickItem, QuickPickItemKind, Tab, commands, window, workspace } from "vscode";
+import { QuickInputButton, QuickPickItem, Tab, commands, window, workspace } from "vscode";
 import { TabInputType, TabInputUnion } from "./TabInputUnion";
 
 const showCurrentTab = false;
 
 export class QuickTabItem implements QuickPickItem {
-  constructor(private readonly _tab: Tab) {
+  constructor(
+    private readonly _tab: Tab,
+    readonly lastUsed: number | null
+  ) {
     this.input = this._initInput();
   }
 
@@ -88,6 +92,8 @@ export class QuickTabItem implements QuickPickItem {
       return;
     }
 
+    const pin = this.isPinned ? "   $(pinned)" : "";
+
     const input = this.input;;
     switch (input.type) {
       case "file": {
@@ -98,7 +104,7 @@ export class QuickTabItem implements QuickPickItem {
         }
 
         if (uri.path.includes("home")) {
-          return "~/" + path.relative(homedir(), uri.path);
+          return `~/` + path.relative(homedir(), uri.path) + `${pin}`;
         }
         break;
       }
@@ -107,11 +113,11 @@ export class QuickTabItem implements QuickPickItem {
         const uri = input.inner.modified;
         const workspaceFolder = workspace.getWorkspaceFolder(uri);
         if (workspaceFolder) {
-          return "git://" + path.relative(workspaceFolder.uri.path, uri.path);
+          return `git://` + path.relative(workspaceFolder.uri.path, uri.path) + `${pin}`;
         }
 
         if (uri.path.includes("home")) {
-          return "git:~/" + path.relative(homedir(), uri.path);
+          return `git:~/` + path.relative(homedir(), uri.path) + `${pin}`;
         }
         break;
       }
@@ -120,26 +126,33 @@ export class QuickTabItem implements QuickPickItem {
 }
 
 export let inQuickTab = false;
+
 export function setInQuickTabStatus(status: boolean) {
   commands.executeCommand("setContext", "inQuickTab", status);
   inQuickTab = status;
 }
 
+const tabToLastUsed = new Map<string, number>()
+for (const group of window.tabGroups.all) {
+  for (const tab of group.tabs) {
+    const item = new QuickTabItem(tab, null);
 
-let currentActiveTabIdent = window.tabGroups.activeTabGroup.activeTab?.label;
-let lastActiveTabIdent: string | undefined;
+    switch (item.input?.type) {
+      case "file":
+        const lastModified = statSync(item.input.inner.uri.fsPath).mtime.getTime();
+        tabToLastUsed.set(item.ident, lastModified)
+        break;
+    }
+  }
+}
 
 window.tabGroups.onDidChangeTabs(event => {
-  const tab = window.tabGroups.activeTabGroup.activeTab;
+  for (const tab of event.closed) {
+    tabToLastUsed.delete(tab.label);
+  }
 
-  if (tab) {
-    // We can get this event fired for the same tab multiple times
-    if (tab.label === currentActiveTabIdent) {
-      return;
-    }
-    const item = new QuickTabItem(tab);
-    lastActiveTabIdent = currentActiveTabIdent
-    currentActiveTabIdent = tab.label;
+  for (const tab of event.changed) {
+    tabToLastUsed.set(tab.label, Date.now());
   }
 })
 
@@ -170,8 +183,6 @@ export class QuickTabPicker {
         this.destroy();
         return;
       }
-
-      //lastActiveTabIdent = ident;
 
       // These are special cases. Ideally we would be able to reveal 
       // in onDidChangeActive item, but we can't as they are commands
@@ -206,67 +217,26 @@ export class QuickTabPicker {
     let mostRecent: QuickTabItem | null = null;
     let activeItem: QuickTabItem | null = null;
 
+    const items = []
+
     for (const group of tabGroups) {
       for (const tab of group.tabs) {
-        const item = new QuickTabItem(tab);
-
-        if (!showCurrentTab && item.isActive) {
+        if (!showCurrentTab && tab.isActive) {
           continue;
         }
+        const lastUsed = tabToLastUsed.get(tab.label) ?? null;
 
-        if (item.ident === lastActiveTabIdent) {
-          mostRecent = item;
-        }
-        else if (tab.isPinned) {
-          pinned.push(item);
-        }
-        else if (item.type === "file") {
-          files.push(item);
-        } else if (item.type === "other" || item.type === 'magit' || item.type === "settings" || item.type === "keybindings") {
-          other.push(item);;
-        } else if (item.type === "git") {
-          diffs.push(item);
-        }
+        items.push(new QuickTabItem(tab, lastUsed))
       }
     }
 
-    const sorted: QuickPickItem[] = [];
+    const recentTabs = items
+      .filter(item => item.lastUsed !== null)
+      .sort((a, b) => b.lastUsed! - a.lastUsed!)
 
-    if (mostRecent) {
-      sorted.push({
-        label: "Last",
-        kind: QuickPickItemKind.Separator
-      });
-      sorted.push(mostRecent);
-    };
+    const otherTab = items.filter(item => item.lastUsed === null);
 
-    sorted.push({
-      label: "Pins",
-      kind: QuickPickItemKind.Separator
-    });
-    sorted.push(...pinned);
-
-    sorted.push({
-      label: "Text",
-      kind: QuickPickItemKind.Separator
-    });
-    sorted.push(...files);
-
-    // TODO: Do we have a way of opening the actual diff?
-    sorted.push({
-      label: "Git",
-      kind: QuickPickItemKind.Separator
-    });
-    sorted.push(...diffs);
-
-    sorted.push({
-      label: "Other",
-      kind: QuickPickItemKind.Separator
-    });
-    sorted.push(...other);
-
-    // Ok, should not be able to select separators
-    return sorted as any;
+    return [...recentTabs, ...otherTab]
   }
 }
 
